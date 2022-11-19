@@ -1,0 +1,512 @@
+  AWSTemplateFormatVersion: 2010-09-09
+  Description: Custom VPC Creation With Private and Public Subnet
+
+  Parameters:
+    VPCName:
+      Description: CIDR range for our VPC
+      Type: String
+      Default: DemoCustomVPC 
+    VPCCidr:
+      Description: CIDR range for our VPC
+      Type: String
+      Default: 10.0.0.0/16
+    PrivateSubnetACidr:
+      Description: Private Subnet IP Range
+      Type: String
+      Default: 10.0.0.0/24
+    PrivateSubnetBCidr:
+      Description: Private Subnet IP Range
+      Type: String
+      Default: 10.0.1.0/24
+    PublicSubnetACidr:
+      Description: Public Subnet IP Range
+      Type: String
+      Default: 10.0.2.0/24
+    PublicSubnetBCidr:
+      Description: Public Subnet IP Range
+      Type: String
+      Default: 10.0.3.0/24
+    AvailabilityZoneA:
+      Description: Avaibalbility Zone 1
+      Type: String
+      Default: eu-west-3a
+    AvailabilityZoneB:
+      Description: Avaibalbility Zone 2
+      Type: String
+      Default: eu-west-3b     
+  Resources:
+    DemoVPC:
+      Type: AWS::EC2::VPC
+      Properties:
+        EnableDnsSupport: true
+        EnableDnsHostnames: true
+        CidrBlock: !Ref VPCCidr
+        Tags:
+          -
+            Key: Name
+            Value: !Ref VPCName
+
+    PrivateSubnetA:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref DemoVPC
+        AvailabilityZone: !Ref AvailabilityZoneA
+        CidrBlock: !Ref PrivateSubnetACidr 
+        Tags:
+          -
+            Key: Name
+            Value: !Sub '${VPCName}-PrivateSubnetA'       
+
+    PrivateSubnetB:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref DemoVPC
+        AvailabilityZone: !Ref AvailabilityZoneB
+        CidrBlock: !Ref PrivateSubnetBCidr
+        Tags:
+          -
+            Key: Name
+            Value: !Sub '${VPCName}-PrivateSubnetB'
+        
+    PublicSubnetA:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref DemoVPC
+        AvailabilityZone: !Ref AvailabilityZoneA
+        CidrBlock: !Ref PublicSubnetACidr
+        MapPublicIpOnLaunch: true 
+        Tags:
+          -
+            Key: Name
+            Value: !Sub '${VPCName}-PublicSubnetA'        
+
+    PublicSubnetB:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref DemoVPC
+        AvailabilityZone: !Ref AvailabilityZoneB
+        CidrBlock: !Ref PublicSubnetBCidr
+        MapPublicIpOnLaunch: true
+        Tags:
+          -
+            Key: Name
+            Value: !Sub '${VPCName}-PublicSubnetB'
+
+
+    InternetGateway:
+      Type: AWS::EC2::InternetGateway
+
+    VPCGatewayAttachment:
+      Type: "AWS::EC2::VPCGatewayAttachment"
+      Properties:
+        VpcId: !Ref DemoVPC
+        InternetGatewayId: !Ref InternetGateway
+
+    PublicRouteTable:
+      Type: AWS::EC2::RouteTable
+      Properties:
+        VpcId: !Ref DemoVPC
+
+    PublicRoute:
+      Type: AWS::EC2::Route
+      DependsOn: VPCGatewayAttachment
+      Properties:
+        RouteTableId: !Ref PublicRouteTable
+        DestinationCidrBlock: 0.0.0.0/0
+        GatewayId: !Ref InternetGateway
+
+    PublicSubnetRouteTableAssociationA:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref PublicSubnetA
+        RouteTableId: !Ref PublicRouteTable
+
+    PublicSubnetRouteTableAssociationB:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref PublicSubnetB
+        RouteTableId: !Ref PublicRouteTable
+
+    ElasticIPA:
+      Type: AWS::EC2::EIP
+      Properties:
+        Domain: vpc
+
+    ElasticIPB:
+      Type: AWS::EC2::EIP
+      Properties:
+        Domain: vpc
+
+    NATGatewayA:
+      Type: AWS::EC2::NatGateway
+      Properties:
+        AllocationId: !GetAtt ElasticIPA.AllocationId
+        SubnetId: !Ref PublicSubnetA
+
+    NATGatewayB:
+      Type: AWS::EC2::NatGateway
+      Properties:
+        AllocationId: !GetAtt ElasticIPB.AllocationId
+        SubnetId: !Ref PublicSubnetB
+
+    PrivateRouteTableA:
+      Type: AWS::EC2::RouteTable
+      Properties:
+        VpcId: !Ref DemoVPC
+
+    PrivateRouteTableB:
+      Type: AWS::EC2::RouteTable
+      Properties:
+        VpcId: !Ref DemoVPC
+
+    PrivateRouteToInternetA:
+      Type: AWS::EC2::Route
+      Properties:
+        RouteTableId: !Ref PrivateRouteTableA
+        DestinationCidrBlock: 0.0.0.0/0
+        NatGatewayId: !Ref NATGatewayA
+
+    PrivateRouteToInternetB:
+      Type: AWS::EC2::Route
+      Properties:
+        RouteTableId: !Ref PrivateRouteTableB
+        DestinationCidrBlock: 0.0.0.0/0
+        NatGatewayId: !Ref NATGatewayB
+
+    PrivateSubnetRouteTableAssociationA:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref PrivateSubnetA
+        RouteTableId: !Ref PrivateRouteTableA
+
+    PrivateSubnetRouteTableAssociationB:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref PrivateSubnetB
+        RouteTableId: !Ref PrivateRouteTableB
+
+    PublicLoadBalancer:
+      Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+      Properties:
+        Scheme: internet-facing
+        Subnets:
+          # The load balancer is placed into the public subnets, so that traffic
+          # from the internet can reach the load balancer directly via the internet gateway
+          - !Ref PublicSubnetA
+          - !Ref PublicSubnetB
+        SecurityGroups:
+          - !Ref 'PublicLoadBalancerSecurityGroup'
+    
+    PublicLoadBalancerSecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupDescription: Access to the public facing load balancer
+        VpcId: !Ref 'DemoVPC'
+        SecurityGroupIngress:
+          # Allow access to ALB from anywhere on the internet
+          - CidrIp: 0.0.0.0/0
+            IpProtocol: -1
+      
+    internalLoadBalancer:
+      Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+      Properties:
+        Scheme: internal
+        Subnets:
+          # The load balancer is placed into the private subnets
+          - !Ref PrivateSubnetA
+          - !Ref PrivateSubnetB
+        SecurityGroups:
+          - !Ref 'PrivateLoadBalancerSecurityGroup'
+
+    PrivateLoadBalancerSecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupDescription: Access to the public facing load balancer
+        VpcId: !Ref 'DemoVPC'
+        SecurityGroupIngress:
+          # Allow access to ALB from anywhere on the internet
+          - CidrIp: 0.0.0.0/0
+            IpProtocol: -1
+
+    DummyTargetGroupPublic:
+      Type: AWS::ElasticLoadBalancingV2::TargetGroup
+      Properties:
+        HealthCheckIntervalSeconds: 6
+        HealthCheckPath: /
+        HealthCheckProtocol: HTTP
+        HealthCheckTimeoutSeconds: 5
+        HealthyThresholdCount: 2
+        Name: "no-op"
+        Port: 80
+        Protocol: HTTP
+        UnhealthyThresholdCount: 2
+        VpcId: !Ref DemoVPC
+
+    DummyTargetGroupPrivate:
+      Type: AWS::ElasticLoadBalancingV2::TargetGroup
+      Properties:
+        HealthCheckIntervalSeconds: 6
+        HealthCheckPath: /
+        HealthCheckProtocol: HTTP
+        HealthCheckTimeoutSeconds: 5
+        HealthyThresholdCount: 2
+        Port: 80
+        Protocol: HTTP
+        UnhealthyThresholdCount: 2
+        VpcId: !Ref DemoVPC
+
+    PublicLoadBalancerListener:
+      Type: AWS::ElasticLoadBalancingV2::Listener
+      Properties:
+        DefaultActions:
+          - TargetGroupArn: !Ref 'DummyTargetGroupPublic'
+            Type: 'forward'
+        LoadBalancerArn: !Ref 'PublicLoadBalancer'
+        Port: 80
+        Protocol: HTTP
+
+    PrivateLoadBalancerListener:
+      Type: AWS::ElasticLoadBalancingV2::Listener
+      Properties:
+        DefaultActions:
+          - TargetGroupArn: !Ref 'DummyTargetGroupPrivate'
+            Type: 'forward'
+        LoadBalancerArn: !Ref 'internalLoadBalancer'
+        Port: 80
+        Protocol: HTTP
+
+    ECSRole:
+      Type: 'AWS::IAM::Role'
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - ecs-tasks.amazonaws.com
+              Action:
+                - 'sts:AssumeRole'
+        Policies:
+          - PolicyName: ecs-policy
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Effect: Allow
+                  Action: 
+                    - "ecr:GetAuthorizationToken"
+                    - "ecr:BatchCheckLayerAvailability"
+                    - "ecr:GetDownloadUrlForLayer"
+                    - "ecr:BatchGetImage"
+                    - "logs:CreateLogStream"
+                    - "logs:PutLogEvents"
+                  Resource: '*'
+
+    ECSCluster:
+      Type: AWS::ECS::Cluster
+
+    ECSSecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupDescription: Access to the public ECS containers
+        VpcId: !Ref 'DemoVPC'
+
+    ECSInternalSecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupDescription: Access to the ECS private containers
+        VpcId: !Ref 'DemoVPC'
+
+    ECSSecurityGroupIngressFromPublicALB:
+      Type: AWS::EC2::SecurityGroupIngress
+      Properties:
+        Description: Ingress from the public ALB
+        GroupId: !Ref 'ECSSecurityGroup'
+        IpProtocol: -1
+        SourceSecurityGroupId: !Ref 'PublicLoadBalancerSecurityGroup'
+
+    ECSSecurityGroupIngressFromPrivateALB:
+      Type: AWS::EC2::SecurityGroupIngress
+      Properties:
+        Description: Ingress from the private ALB
+        GroupId: !Ref 'ECSInternalSecurityGroup'
+        IpProtocol: -1
+        SourceSecurityGroupId: !Ref 'PrivateLoadBalancerSecurityGroup'
+
+    ECSSecurityGroupIngressFromSelf:
+      Type: AWS::EC2::SecurityGroupIngress
+      Properties:
+        Description: Ingress from other containers in the same security group
+        GroupId: !Ref 'ECSInternalSecurityGroup'
+        IpProtocol: -1
+        SourceSecurityGroupId: !Ref 'ECSInternalSecurityGroup'
+
+    ECSSecurityGroupIngressFromSelfPublic:
+      Type: AWS::EC2::SecurityGroupIngress
+      Properties:
+        Description: Ingress from other containers in the same security group
+        GroupId: !Ref 'ECSSecurityGroup'
+        IpProtocol: -1
+        SourceSecurityGroupId: !Ref 'ECSSecurityGroup'
+
+    EcsFrontTaskDefinition:
+      Type: AWS::ECS::TaskDefinition
+      Properties:
+        Cpu: 512
+        Memory: 1024
+        NetworkMode: awsvpc
+        ExecutionRoleArn: !GetAtt ECSRole.Arn
+        RequiresCompatibilities:
+          - FARGATE
+        ContainerDefinitions:
+          - Name: "ecs-front-container"
+            Image: "265466260859.dkr.ecr.eu-west-3.amazonaws.com/test-ecs-repository:frontend-app"
+            PortMappings:
+              - ContainerPort: 5000
+            Environment:
+              - Name: url
+                Value: !Sub
+                    - "http://${lb_url}"
+                    - lb_url: !GetAtt internalLoadBalancer.DNSName
+
+    EcsBackendTaskDefinition:
+      Type: AWS::ECS::TaskDefinition
+      Properties:
+        Cpu: 512
+        Memory: 1024
+        NetworkMode: awsvpc
+        ExecutionRoleArn: !GetAtt ECSRole.Arn
+        RequiresCompatibilities:
+          - FARGATE
+        ContainerDefinitions:
+          - Name: "ecs-backend-container"
+            Image: "265466260859.dkr.ecr.eu-west-3.amazonaws.com/test-ecs-repository:backend-app"
+            PortMappings:
+              - ContainerPort: 3000
+
+    #By this time, we have internet- lets launch an instance
+    EcsFrontService:
+      Type: AWS::ECS::Service
+      DependsOn: LoadBalancerRule
+      Properties:
+        Cluster: !Ref ECSCluster
+        LaunchType: FARGATE
+        DeploymentConfiguration:
+          MaximumPercent: 200
+          MinimumHealthyPercent: 100
+        DesiredCount: 2
+        NetworkConfiguration:
+          AwsvpcConfiguration:
+            AssignPublicIp: ENABLED
+            SecurityGroups:
+              - !Ref ECSSecurityGroup
+            Subnets:
+              - !Ref PublicSubnetA
+              - !Ref PublicSubnetB
+        TaskDefinition: !Ref EcsFrontTaskDefinition
+        LoadBalancers:
+          - ContainerName: "ecs-front-container"
+            ContainerPort: 5000
+            TargetGroupArn: !Ref 'EcsServiceTargetGroup'
+
+    EcsServiceTargetGroup:
+      Type: AWS::ElasticLoadBalancingV2::TargetGroup
+      Properties:
+        HealthCheckIntervalSeconds: 6
+        HealthCheckPath: /
+        HealthCheckProtocol: HTTP
+        HealthCheckTimeoutSeconds: 5
+        HealthyThresholdCount: 2
+        TargetType: ip
+        Name: 'ecs-frontend-service'
+        Port: 5000
+        Protocol: HTTP
+        UnhealthyThresholdCount: 2
+        VpcId: !Ref DemoVPC
+
+  # Create a rule on the load balancer for routing traffic to the target group
+    LoadBalancerRule:
+      Type: AWS::ElasticLoadBalancingV2::ListenerRule
+      Properties:
+        Actions:
+          - TargetGroupArn: !Ref 'EcsServiceTargetGroup'
+            Type: 'forward'
+        Conditions:
+          - Field: path-pattern
+            Values: 
+              - '*'
+        ListenerArn: !Ref PublicLoadBalancerListener
+        Priority: 1
+
+    EcsBackendService:
+      Type: AWS::ECS::Service
+      DependsOn: LoadBalancerInternalRule
+      Properties:
+        Cluster: !Ref ECSCluster
+        LaunchType: FARGATE
+        DeploymentConfiguration:
+          MaximumPercent: 200
+          MinimumHealthyPercent: 100
+        DesiredCount: 2
+        NetworkConfiguration:
+          AwsvpcConfiguration:
+            AssignPublicIp: ENABLED
+            SecurityGroups:
+              - !Ref ECSInternalSecurityGroup
+            Subnets:
+              - !Ref PrivateSubnetA
+              - !Ref PrivateSubnetB
+        TaskDefinition: !Ref  EcsBackendTaskDefinition
+        LoadBalancers:
+          - ContainerName: "ecs-backend-container"
+            ContainerPort: 3000
+            TargetGroupArn: !Ref 'EcsServiceInternalTargetGroup'
+
+    EcsServiceInternalTargetGroup:
+      Type: AWS::ElasticLoadBalancingV2::TargetGroup
+      Properties:
+        HealthCheckIntervalSeconds: 6
+        HealthCheckPath: /
+        HealthCheckProtocol: HTTP
+        HealthCheckTimeoutSeconds: 5
+        HealthyThresholdCount: 2
+        TargetType: ip
+        Name: 'ecs-backend-service'
+        Port: 3000
+        Protocol: HTTP
+        UnhealthyThresholdCount: 2
+        VpcId: !Ref DemoVPC
+
+  # Create a rule on the load balancer for routing traffic to the target group
+    LoadBalancerInternalRule:
+      Type: AWS::ElasticLoadBalancingV2::ListenerRule
+      Properties:
+        Actions:
+          - TargetGroupArn: !Ref 'EcsServiceInternalTargetGroup'
+            Type: 'forward'
+        Conditions:
+          - Field: path-pattern
+            Values: 
+              - '*'
+        ListenerArn: !Ref PrivateLoadBalancerListener
+        Priority: 1
+        
+  Outputs:
+    VPCId:
+      Description: vpc id 
+      Value: !Ref DemoVPC
+    PublicSubnetA:
+      Description: SubnetId of public subnet A
+      Value: !Ref PublicSubnetA
+    PublicSubnetB:
+      Description: SubnetId of public subnet B
+      Value: !Ref PublicSubnetB 
+    PrivateSubnetA:
+      Description: SubnetId of private subnet A
+      Value: !Ref PrivateSubnetA
+    PrivateSubnetB:
+      Description: SubnetId of private subnet B
+      Value: !Ref PublicSubnetB 
+    PublicALBDns:
+      Description: Dns of the public ALB
+      Value:  !GetAtt PublicLoadBalancer.DNSName
