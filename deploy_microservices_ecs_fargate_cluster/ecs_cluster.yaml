@@ -74,7 +74,6 @@
         VpcId: !Ref DemoVPC
         AvailabilityZone: !Ref AvailabilityZoneA
         CidrBlock: !Ref PublicSubnetACidr
-        MapPublicIpOnLaunch: true 
         Tags:
           -
             Key: Name
@@ -86,7 +85,6 @@
         VpcId: !Ref DemoVPC
         AvailabilityZone: !Ref AvailabilityZoneB
         CidrBlock: !Ref PublicSubnetBCidr
-        MapPublicIpOnLaunch: true
         Tags:
           -
             Key: Name
@@ -223,10 +221,14 @@
       Properties:
         GroupDescription: Access to the public facing load balancer
         VpcId: !Ref 'DemoVPC'
-        SecurityGroupIngress:
-          # Allow access to ALB from anywhere on the internet
-          - CidrIp: 0.0.0.0/0
-            IpProtocol: -1
+
+    PrivateLoadBalancerSecurityGroupIngress:
+      Type: AWS::EC2::SecurityGroupIngress
+      Properties:
+        Description: Ingress from the private ALB
+        GroupId: !Ref PrivateLoadBalancerSecurityGroup
+        IpProtocol: -1
+        SourceSecurityGroupId: !Ref ECSSecurityGroup
 
     DummyTargetGroupPublic:
       Type: AWS::ElasticLoadBalancingV2::TargetGroup
@@ -385,7 +387,7 @@
               - ContainerPort: 3000
 
     #By this time, we have internet- lets launch an instance
-    EcsFrontService:
+    EcsFrontEndService:
       Type: AWS::ECS::Service
       DependsOn: LoadBalancerRule
       Properties:
@@ -397,12 +399,11 @@
         DesiredCount: 2
         NetworkConfiguration:
           AwsvpcConfiguration:
-            AssignPublicIp: ENABLED
             SecurityGroups:
               - !Ref ECSSecurityGroup
             Subnets:
-              - !Ref PublicSubnetA
-              - !Ref PublicSubnetB
+              - !Ref PrivateSubnetA
+              - !Ref PrivateSubnetB
         TaskDefinition: !Ref EcsFrontTaskDefinition
         LoadBalancers:
           - ContainerName: "ecs-front-container"
@@ -438,7 +439,7 @@
         ListenerArn: !Ref PublicLoadBalancerListener
         Priority: 1
 
-    EcsBackendService:
+    EcsBackService:
       Type: AWS::ECS::Service
       DependsOn: LoadBalancerInternalRule
       Properties:
@@ -450,7 +451,6 @@
         DesiredCount: 2
         NetworkConfiguration:
           AwsvpcConfiguration:
-            AssignPublicIp: ENABLED
             SecurityGroups:
               - !Ref ECSInternalSecurityGroup
             Subnets:
