@@ -1,0 +1,138 @@
+  AWSTemplateFormatVersion: 2010-09-09
+  Description: Deploy static website using s3 and cloudfront with an aws generated ssl certificate
+
+  Parameters:
+    S3PrincipalBucketName:
+      Description: Name of the principal bucket, that will hold and host the static website
+      Type: String
+      Default: "" # your domain name with www (www.example.com)
+
+    S3SecondaryBucketName:
+      Description: The purpose of this bucket is to redirect the user the main bucket
+      Type: String
+      Default: "" # your domain name (example.com)
+
+    
+  Resources: 
+    PrincipalS3Bucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: !Ref S3PrincipalBucketName
+        AccessControl: PublicRead
+        WebsiteConfiguration:
+          IndexDocument: index.html
+    
+    PrincipalS3BucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties: 
+        Bucket: !Ref PrincipalS3Bucket
+        PolicyDocument: 
+          Version: 2012-10-17
+          Statement:
+            - Action:
+              - "s3:GetObject"
+              Effect: Allow
+              Resource: 
+                - !Sub "arn:aws:s3:::${S3PrincipalBucketName}/*"
+              Principal: "*"
+
+    RedirectS3Bucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: !Ref S3SecondaryBucketName    
+        WebsiteConfiguration:
+          RedirectAllRequestsTo: 
+            HostName: !Ref PrincipalS3Bucket
+            Protocol: https
+
+    ACMCertificate:
+      Type: AWS::CertificateManager::Certificate
+      Properties:
+        DomainName: !Ref S3PrincipalBucketName
+        SubjectAlternativeNames:
+          - !Ref S3SecondaryBucketName
+        ValidationMethod: DNS
+        DomainValidationOptions:
+          - DomainName: !Ref S3SecondaryBucketName
+            HostedZoneId: !GetAtt Route53HostedZone.Id
+          - DomainName: !Ref S3PrincipalBucketName
+            HostedZoneId: !GetAtt Route53HostedZone.Id
+        
+    Route53HostedZone:
+      Type: AWS::Route53::HostedZone
+      Properties:
+        Name: !Ref S3SecondaryBucketName
+    
+    RedirectRoute53RecordSet:
+      Type: AWS::Route53::RecordSet
+      Properties:
+        HostedZoneId: !GetAtt Route53HostedZone.Id
+        AliasTarget:
+          DNSName: !GetAtt RedirectDistribution.DomainName
+          HostedZoneId: Z2FDTNDATAQYW2
+        Name: !Ref S3SecondaryBucketName
+        Type: A
+
+    MainRoute53RecordSet:
+      Type: AWS::Route53::RecordSet
+      Properties:
+        HostedZoneId: !GetAtt Route53HostedZone.Id
+        AliasTarget:
+          DNSName: !GetAtt PublicDistribution.DomainName
+          HostedZoneId: Z2FDTNDATAQYW2
+        Name: !Ref S3PrincipalBucketName
+        Type: A
+
+    PublicDistribution:
+      Type: AWS::CloudFront::Distribution
+      Properties:
+        DistributionConfig:
+          Aliases:
+            - !Ref S3PrincipalBucketName
+          Origins:
+            - DomainName: !Sub ${S3PrincipalBucketName}.s3-website-us-east-1.amazonaws.com 
+              Id: S3-main-bucket
+              CustomOriginConfig:
+                OriginProtocolPolicy: https-only
+          Enabled: 'true'
+          Comment: Some comment
+          DefaultCacheBehavior:
+            AllowedMethods:
+              - GET
+              - HEAD
+            TargetOriginId: S3-main-bucket
+            ForwardedValues:
+              QueryString: 'false'
+              Cookies:
+                Forward: none
+            ViewerProtocolPolicy: redirect-to-https
+          ViewerCertificate:
+            AcmCertificateArn: !Ref ACMCertificate
+            SslSupportMethod: sni-only
+
+    RedirectDistribution:
+      Type: AWS::CloudFront::Distribution
+      Properties:
+        DistributionConfig:
+          Aliases:
+            - !Ref S3SecondaryBucketName     
+          Origins:
+            - DomainName: !Sub ${S3SecondaryBucketName}.s3-website-us-east-1.amazonaws.com 
+              Id: S3-main-bucket
+              CustomOriginConfig:
+                OriginProtocolPolicy: https-only
+          Enabled: 'true'
+          Comment: Some comment
+          DefaultCacheBehavior:
+            AllowedMethods:
+              - GET
+              - HEAD
+            TargetOriginId: S3-main-bucket
+            ForwardedValues:
+              QueryString: 'false'
+              Cookies:
+                Forward: none
+            ViewerProtocolPolicy: redirect-to-https
+          ViewerCertificate:
+            AcmCertificateArn: !Ref ACMCertificate
+            SslSupportMethod: sni-only
