@@ -1,0 +1,114 @@
+{
+  "Comment": "A description of my state machine",
+  "StartAt": "DynamoDB GetItem",
+  "States": {
+    "DynamoDB GetItem": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:getItem",
+      "Parameters": {
+        "TableName": "serverlesspresso-config-table",
+        "Key": {
+          "PK": {
+            "S": "config"
+          }
+        }
+      },
+      "ResultPath": "$.GetStore",
+      "Next": "Shop Open ?"
+    },
+    "Shop Open ?": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Not": {
+            "Variable": "$.GetStore.Item.storeOpen.BOOL",
+            "BooleanEquals": true
+          },
+          "Next": "PutEvents"
+        }
+      ],
+      "Default": "ListExecutions"
+    },
+    "PutEvents": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::events:putEvents.waitForTaskToken",
+      "Parameters": {
+        "Entries": [
+          {
+            "Detail": {
+              "Message": "Hello from Step Functions!",
+              "TaskToken.$": "$$.Task.Token"
+            },
+            "DetailType": "MyDetailType",
+            "EventBusName": "MyEventBusName",
+            "Source": "MySource"
+          }
+        ]
+      },
+      "End": true
+    },
+    "ListExecutions": {
+      "Type": "Task",
+      "Next": "Is capacity available ?",
+      "Parameters": {
+        "StateMachineArn": "arn:aws:states:eu-central-1:472767207557:stateMachine:MyStateMachine-order",
+        "MaxResults": 100,
+        "StatusFilter": "RUNNING"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:sfn:listExecutions",
+      "ResultPath": "$.isCapacityAvailable"
+    },
+    "Is capacity available ?": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.isCapacityAvailable.Executions[20]",
+          "IsPresent": true,
+          "Next": "PutEvents"
+        }
+      ],
+      "Default": "Emit - Workflow Started TT"
+    },
+    "Emit - Workflow Started TT": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::events:putEvents.waitForTaskToken",
+      "Parameters": {
+        "Entries": [
+          {
+            "Detail": {
+              "Message": "The workflow waits for your order to be submitted. It emits an event with a unique 'task token'. The token is stored in an Amazon DynamoDB table, along with your order ID.",
+              "TaskToken.$": "$$.Task.Token",
+              "orderId.$": "$.detail.orderId",
+              "userId.$": "$.detail.userId"
+            },
+            "DetailType": "OrderProcessor.WorkflowStarted",
+            "EventBusName": "Serverlesspresso",
+            "Source": "awsserverlessda.serverlesspresso"
+          }
+        ]
+      },
+      "Next": "Pass",
+      "ResultPath": null,
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.Timeout"
+          ],
+          "Comment": "Customer timed out",
+          "Next": "Customer timedout"
+        }
+      ],
+      "HeartbeatSeconds": 120
+    },
+    "Customer timedout": {
+      "Type": "Pass",
+      "End": true,
+      "Result": "Customer timedout",
+      "ResultPath": "$.reason"
+    },
+    "Pass": {
+      "Type": "Pass",
+      "End": true
+    }
+  }
+}
